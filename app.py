@@ -308,7 +308,7 @@ if df_base is None or df_base.empty:
     )
     st.stop()
 
-# --- FILTROS NO TOPO (ORGANIZADOS NA MESMA IDEIA DO STATUS) ---
+# --- FILTROS NO TOPO ---
 col_busca_proj, col_busca_peca, col_filtro_status = st.columns([2.0, 1.2, 0.9])
 
 with col_busca_proj:
@@ -334,7 +334,7 @@ with col_filtro_status:
         horizontal=True,
     )
 
-# --- FILTROS DE ANO E MÊS ALINHADOS NA MESMA LINHA ---
+# --- FILTROS DE ANO E MÊS ---
 col_ano, col_mes = st.columns([1, 2])
 
 with col_ano:
@@ -367,10 +367,10 @@ with col_mes:
         placeholder="Todos os meses",
     )
 
-# --- APLICAÇÃO DOS FILTROS (SE VAZIO, TRAZ TUDO) ---
+# --- APLICAÇÃO DOS FILTROS CORRIGIDA ---
 df_view = df_base.copy()
 
-if busca_projeto:
+if len(busca_projeto) > 0:
     df_view = df_view[df_view["Observacao"].isin(busca_projeto)]
 
 if busca_peca.strip():
@@ -383,9 +383,9 @@ if busca_peca.strip():
 if filtro_status_btn != "Todos":
     df_view = df_view[df_view["STATUS"] == filtro_status_btn]
 
-if meses_selecionados:
+if len(meses_selecionados) > 0:
     df_view = df_view[df_view["MÊS-ANO"].isin(meses_selecionados)]
-elif anos_selecionados:
+elif len(anos_selecionados) > 0:
     df_view = df_view[df_view["Ano"].isin(anos_selecionados)]
 
 # --- CÁLCULO DOS INDICADORES ---
