@@ -14,32 +14,32 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# --- CSS PARA COMPACTAR O ESPAÇAMENTO VERTICAL ---
+# --- CSS AJUSTADO PARA NÃO TAMPAR O TOPO E MANTER A INTERFACE JUSTA ---
 st.markdown(
     """
     <style>
         .block-container {
-            padding-top: 1.2rem !important;
+            padding-top: 3.2rem !important;
             padding-bottom: 1.5rem !important;
-            padding-left: 2rem !important;
-            padding-right: 2rem !important;
+            padding-left: 1.5rem !important;
+            padding-right: 1.5rem !important;
         }
         div[data-testid="stMetric"] {
             background-color: #161b22;
-            padding: 8px 14px;
+            padding: 8px 12px;
             border-radius: 8px;
             border: 1px solid #30363d;
         }
         div[data-testid="stMetricValue"] {
-            font-size: 1.4rem !important;
+            font-size: 1.35rem !important;
             font-weight: 700;
         }
         div[data-testid="stMetricLabel"] {
-            font-size: 0.85rem !important;
+            font-size: 0.8rem !important;
             color: #8b949e;
         }
         hr {
-            margin: 0.8rem 0 !important;
+            margin: 0.6rem 0 !important;
         }
     </style>
     """,
@@ -133,11 +133,12 @@ def processar_arquivo_op(file_bytes):
         df_filtrado["DT_Real_Fim_Parsed"] = pd.to_datetime(
             df_filtrado["DT Real Fim"], format="%d/%m/%Y", errors="coerce"
         )
-        df_filtrado["MÊS-ANO"] = df_filtrado[
-            "DT_Real_Fim_Parsed"
-        ].dt.strftime("%Y/%m")
-        df_filtrado["MÊS-ANO"] = df_filtrado["MÊS-ANO"].fillna("Sem Data")
+        df_filtrado["Ano"] = df_filtrado["DT_Real_Fim_Parsed"].dt.strftime("%Y").fillna("Sem Data")
+        df_filtrado["Mes"] = df_filtrado["DT_Real_Fim_Parsed"].dt.strftime("%m").fillna("Sem Data")
+        df_filtrado["MÊS-ANO"] = df_filtrado["DT_Real_Fim_Parsed"].dt.strftime("%Y/%m").fillna("Sem Data")
     else:
+        df_filtrado["Ano"] = "Sem Data"
+        df_filtrado["Mes"] = "Sem Data"
         df_filtrado["MÊS-ANO"] = "Sem Data"
 
     df_filtrado["STATUS"] = df_filtrado.apply(
@@ -264,8 +265,8 @@ if "df_ops" not in st.session_state:
     st.session_state["df_ops"] = df_salvo
     st.session_state["info_carga"] = info_salva
 
-# --- CABEÇALHO COMPACTO E JUSTO ---
-col_logo, col_upload, col_reset, col_mob = st.columns([1.6, 2.2, 0.6, 0.8])
+# --- CABEÇALHO SUPERIOR ---
+col_logo, col_upload, col_reset, col_mob = st.columns([1.8, 2.2, 0.6, 0.8])
 
 with col_logo:
     st.markdown("### 🏭 Gestão de OPs")
@@ -333,15 +334,39 @@ with col_filtro_status:
         horizontal=True,
     )
 
-with st.expander("📅 Filtrar Mês-Ano (Opcional)", expanded=False):
-    meses_lista = sorted(df_base["MÊS-ANO"].unique().tolist(), reverse=True)
-    meses_selecionados = st.multiselect(
-        "Selecione os meses desejados:",
-        options=meses_lista,
-        default=meses_lista,
+# --- FILTRO EM DUAS ETAPAS: ANO E MÊS ---
+col_ano, col_mes = st.columns([1, 2])
+
+with col_ano:
+    anos_disponiveis = sorted(
+        [a for a in df_base["Ano"].unique() if a != "Sem Data"], reverse=True
+    )
+    if "Sem Data" in df_base["Ano"].unique():
+        anos_disponiveis.append("Sem Data")
+        
+    anos_selecionados = st.multiselect(
+        "📅 Filtrar Ano:",
+        options=anos_disponiveis,
+        placeholder="Todos os anos",
     )
 
-# --- APLICAÇÃO DOS FILTROS (EM CASCATA) ---
+with col_mes:
+    # Se selecionou ano, traz apenas os meses daquele ano
+    if anos_selecionados:
+        meses_disp = sorted(
+            df_base[df_base["Ano"].isin(anos_selecionados)]["MÊS-ANO"].unique().tolist(),
+            reverse=True,
+        )
+    else:
+        meses_disp = sorted(df_base["MÊS-ANO"].unique().tolist(), reverse=True)
+
+    meses_selecionados = st.multiselect(
+        "🗓️ Filtrar Mês:",
+        options=meses_disp,
+        placeholder="Todos os meses",
+    )
+
+# --- APLICAÇÃO DOS FILTROS (SE NÃO SELECIONAR NADA, TRAZ TODOS) ---
 df_view = df_base.copy()
 
 if busca_projeto:
@@ -359,6 +384,8 @@ if filtro_status_btn != "Todos":
 
 if meses_selecionados:
     df_view = df_view[df_view["MÊS-ANO"].isin(meses_selecionados)]
+elif anos_selecionados:
+    df_view = df_view[df_view["Ano"].isin(anos_selecionados)]
 
 # --- CÁLCULO DOS INDICADORES ---
 qtd_total_prog = int(df_view["Quantidade"].sum())
@@ -525,7 +552,6 @@ else:
 
         with g_col1:
             st.markdown("**Evolução Mensal (Produzido vs. Saldo Pendente):**")
-            # Gráfico de barras mensal
             df_graf_mes = (
                 df_resumo_mensal[df_resumo_mensal["MÊS-ANO"] != "Sem Data"]
                 .sort_values(by="MÊS-ANO")
