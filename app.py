@@ -14,12 +14,12 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# --- CSS AJUSTADO PARA TOPO LIMPO E ESPAÇAMENTO JUSTO ---
+# --- CSS PARA ESPAÇAMENTO COMPACTO E ALINHADO ---
 st.markdown(
     """
     <style>
         .block-container {
-            padding-top: 2.8rem !important;
+            padding-top: 2.2rem !important;
             padding-bottom: 1.5rem !important;
             padding-left: 1.5rem !important;
             padding-right: 1.5rem !important;
@@ -90,7 +90,6 @@ def processar_arquivo_op(file_bytes):
 
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Critérios da Macro: Filial 0101, Produto 46*00 e Sem PRIA
     filial_str = (
         df["Filial"].astype(str).str.strip().str.zfill(4)
         if "Filial" in df.columns
@@ -309,7 +308,7 @@ if df_base is None or df_base.empty:
     )
     st.stop()
 
-# --- FILTROS NO TOPO ---
+# --- FILTROS NO TOPO (ORGANIZADOS NA MESMA IDEIA DO STATUS) ---
 col_busca_proj, col_busca_peca, col_filtro_status = st.columns([2.0, 1.2, 0.9])
 
 with col_busca_proj:
@@ -335,7 +334,7 @@ with col_filtro_status:
         horizontal=True,
     )
 
-# --- FILTROS DE ANO E MÊS ---
+# --- FILTROS DE ANO E MÊS ALINHADOS NA MESMA LINHA ---
 col_ano, col_mes = st.columns([1, 2])
 
 with col_ano:
