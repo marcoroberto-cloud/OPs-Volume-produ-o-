@@ -14,6 +14,38 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# --- CSS PARA COMPACTAR O ESPAÇAMENTO VERTICAL ---
+st.markdown(
+    """
+    <style>
+        .block-container {
+            padding-top: 1.2rem !important;
+            padding-bottom: 1.5rem !important;
+            padding-left: 2rem !important;
+            padding-right: 2rem !important;
+        }
+        div[data-testid="stMetric"] {
+            background-color: #161b22;
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+        }
+        div[data-testid="stMetricValue"] {
+            font-size: 1.4rem !important;
+            font-weight: 700;
+        }
+        div[data-testid="stMetricLabel"] {
+            font-size: 0.85rem !important;
+            color: #8b949e;
+        }
+        hr {
+            margin: 0.8rem 0 !important;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 DATA_CACHE_PATH = "base_ops_filtrada.parquet"
 INFO_CACHE_PATH = "info_carga_ops.txt"
 
@@ -147,10 +179,15 @@ def salvar_base_em_disco(df):
 @st.cache_data(show_spinner=False)
 def gerar_resumo_mensal(df):
     resumo = (
-        df.groupby("MÊS-ANO")["Qtd.Produzid"]
-        .sum()
+        df.groupby("MÊS-ANO")
+        .agg(
+            Qtd_Planejada=("Quantidade", "sum"),
+            Total_Produzido=("Qtd.Produzid", "sum"),
+            Saldo_Pendente=("Saldo_Pendente", "sum"),
+            Total_OPs=("Numero da OP", "count"),
+        )
         .reset_index()
-        .rename(columns={"Qtd.Produzid": "Total Produzido"})
+        .rename(columns={"Total_Produzido": "Total Produzido"})
     )
     return resumo.sort_values(by="MÊS-ANO", ascending=False)
 
@@ -227,8 +264,8 @@ if "df_ops" not in st.session_state:
     st.session_state["df_ops"] = df_salvo
     st.session_state["info_carga"] = info_salva
 
-# --- CABEÇALHO COMPACTO ---
-col_logo, col_upload, col_reset, col_mob = st.columns([1.8, 2.2, 0.7, 0.9])
+# --- CABEÇALHO COMPACTO E JUSTO ---
+col_logo, col_upload, col_reset, col_mob = st.columns([1.6, 2.2, 0.6, 0.8])
 
 with col_logo:
     st.markdown("### 🏭 Gestão de OPs")
@@ -265,20 +302,22 @@ with col_mob:
 df_base = st.session_state["df_ops"]
 
 if df_base is None or df_base.empty:
-    st.info("👆 Selecione ou arraste o arquivo CSV no campo acima para carregar o painel.")
+    st.info(
+        "👆 Selecione ou arraste o arquivo CSV no campo acima para carregar o painel."
+    )
     st.stop()
 
-# --- BUSCA E FILTROS PRINCIPAIS NO TOPO ---
-col_busca_proj, col_busca_peca, col_filtro_status = st.columns([2.0, 1.2, 1.0])
+# --- FILTROS NO TOPO ---
+col_busca_proj, col_busca_peca, col_filtro_status = st.columns([2.0, 1.2, 0.9])
 
 with col_busca_proj:
     obs_disponiveis = sorted(
         [o for o in df_base["Observacao"].unique() if o.strip() != ""]
     )
     busca_projeto = st.multiselect(
-        "📄 Digite e Flegue o(s) Lote(s) / Observação:",
+        "📄 Digite e Flegue o(s) Lote(s) / Observação / Projeto:",
         options=obs_disponiveis,
-        placeholder="Digite parte do nome ou código (Ex: TAT, RANGER, COROLLA, MASTER)...",
+        placeholder="Digite parte do nome ou código (Ex: TAT, RANGER, COROLLA)...",
     )
 
 with col_busca_peca:
@@ -288,14 +327,12 @@ with col_busca_peca:
     )
 
 with col_filtro_status:
-    # Segmentador estilo Slicer da Planilha
     filtro_status_btn = st.radio(
         "📌 Status:",
         options=["Todos", "Falta", "Ok"],
         horizontal=True,
     )
 
-# Filtro de Mês/Ano compacto
 with st.expander("📅 Filtrar Mês-Ano (Opcional)", expanded=False):
     meses_lista = sorted(df_base["MÊS-ANO"].unique().tolist(), reverse=True)
     meses_selecionados = st.multiselect(
@@ -331,7 +368,7 @@ perc_ating = (
     (qtd_total_prod / qtd_total_prog * 100) if qtd_total_prog > 0 else 0.0
 )
 
-# --- CARDS DE KPI (EM PRODUÇÃO, PRODUZIDA, TOTAL) ---
+# --- CARDS DE KPI COMPACTOS ---
 kpi1, kpi2, kpi3, kpi4 = st.columns(4)
 
 kpi1.metric(
@@ -349,7 +386,7 @@ kpi2.metric(
 kpi3.metric(
     "3. Falta Produzir (Pendente)",
     f"{qtd_total_pend:,.0f} pçs".replace(",", "."),
-    f"Saldo a Produzir: {qtd_total_pend:,.0f} pçs".replace(",", "."),
+    f"Saldo: {qtd_total_pend:,.0f} pçs".replace(",", "."),
     delta_color="inverse",
 )
 kpi4.metric(
@@ -361,7 +398,7 @@ kpi4.metric(
 
 st.divider()
 
-# --- BOTÃO DE DOWNLOAD EXCEL FORMATADO ---
+# --- BOTÕES DE DOWNLOAD ---
 df_resumo_mensal = gerar_resumo_mensal(df_view)
 
 col_dl_excel, col_dl_csv = st.columns([1.5, 1])
@@ -389,34 +426,47 @@ with col_dl_csv:
 # --- VISUALIZAÇÃO EM MODO CELULAR OU ABAS ---
 if modo_mobile:
     st.markdown("#### 📱 Visão Otimizada para Celular")
-    aba_mob_falta, aba_mob_ok = st.tabs(["🔴 A Produzir (Falta)", "🟢 Produzidas (Ok)"])
-    
+    aba_mob_falta, aba_mob_ok = st.tabs(
+        ["🔴 A Produzir (Falta)", "🟢 Produzidas (Ok)"]
+    )
+
     with aba_mob_falta:
         df_falta_mob = df_view[df_view["STATUS"] == "Falta"]
         st.caption(f"Total: {len(df_falta_mob)} OPs pendentes")
-        for _, row in df_falta_mob.head(50).iterrows():
+        for _, row in df_falta_mob.head(40).iterrows():
             with st.container(border=True):
-                st.markdown(f"**OP:** `{row['Numero da OP']}` | **Falta:** `:red[{int(row['Saldo_Pendente']):,} pçs]`")
+                st.markdown(
+                    f"**OP:** `{row['Numero da OP']}` | **Falta:** `:red[{int(row['Saldo_Pendente']):,} pçs]`"
+                )
                 st.markdown(f"**Peça:** {row['Produto']} - {row['Desc. Prod.']}")
                 st.caption(f"Lote/Projeto: {row['Observacao']}")
 
     with aba_mob_ok:
         df_ok_mob = df_view[df_view["STATUS"] == "Ok"]
         st.caption(f"Total: {len(df_ok_mob)} OPs concluídas")
-        for _, row in df_ok_mob.head(50).iterrows():
+        for _, row in df_ok_mob.head(40).iterrows():
             with st.container(border=True):
-                st.markdown(f"**OP:** `{row['Numero da OP']}` | **Qtd:** `:green[{int(row['Quantidade']):,} pçs]`")
+                st.markdown(
+                    f"**OP:** `{row['Numero da OP']}` | **Qtd:** `:green[{int(row['Quantidade']):,} pçs]`"
+                )
                 st.markdown(f"**Peça:** {row['Produto']} - {row['Desc. Prod.']}")
                 st.caption(f"Concluída em: {row['DT Real Fim']}")
 
 else:
-    # --- ABAS DE TABELAS COMPLETAS (DESKTOP) ---
-    tab_pendentes, tab_produzidas, tab_todas, tab_resumo = st.tabs(
+    # --- ABAS DE TABELAS E RELATÓRIO GRÁFICO (DESKTOP) ---
+    (
+        tab_pendentes,
+        tab_produzidas,
+        tab_todas,
+        tab_resumo,
+        tab_graficos,
+    ) = st.tabs(
         [
             "🔴 A Produzir (Falta)",
             "🟢 Produzidas (Ok)",
             "📋 Todas as OPs Filtradas",
             "📈 Resumo Produção Mensal",
+            "📊 Relatório & Gráficos",
         ]
     )
 
@@ -438,23 +488,78 @@ else:
     with tab_pendentes:
         df_pendentes = df_view[df_view["STATUS"] == "Falta"]
         st.caption(f"Exibindo {len(df_pendentes):,} OPs com saldo pendente.")
-        st.dataframe(df_pendentes[cols_existentes], use_container_width=True, height=450)
+        st.dataframe(
+            df_pendentes[cols_existentes], use_container_width=True, height=450
+        )
 
     with tab_produzidas:
         df_produzidas = df_view[df_view["STATUS"] == "Ok"]
-        st.caption(f"Exibindo {len(df_produzidas):,} OPs totalmente produzidas.")
-        st.dataframe(df_produzidas[cols_existentes], use_container_width=True, height=450)
+        st.caption(
+            f"Exibindo {len(df_produzidas):,} OPs totalmente produzidas."
+        )
+        st.dataframe(
+            df_produzidas[cols_existentes], use_container_width=True, height=450
+        )
 
     with tab_todas:
-        st.dataframe(df_view[cols_existentes], use_container_width=True, height=450)
+        st.dataframe(
+            df_view[cols_existentes], use_container_width=True, height=450
+        )
 
     with tab_resumo:
         st.dataframe(
             df_resumo_mensal.style.format(
                 {
+                    "Qtd_Planejada": "{:,.0f}",
                     "Total Produzido": "{:,.0f}",
+                    "Saldo_Pendente": "{:,.0f}",
                 }
             ),
             use_container_width=True,
             height=380,
         )
+
+    with tab_graficos:
+        st.markdown("#### 📊 Análise Visual da Produção")
+        g_col1, g_col2 = st.columns([2, 1.2])
+
+        with g_col1:
+            st.markdown("**Evolução Mensal (Produzido vs. Saldo Pendente):**")
+            # Gráfico de barras mensal
+            df_graf_mes = (
+                df_resumo_mensal[df_resumo_mensal["MÊS-ANO"] != "Sem Data"]
+                .sort_values(by="MÊS-ANO")
+                .set_index("MÊS-ANO")[["Total Produzido", "Saldo_Pendente"]]
+            )
+            st.bar_chart(df_graf_mes, height=320)
+
+        with g_col2:
+            st.markdown("**Status das OPs Filtradas:**")
+            contagem_status = (
+                df_view["STATUS"]
+                .value_counts()
+                .rename(index={"Ok": "Produzidas (Ok)", "Falta": "A Produzir (Falta)"})
+            )
+            st.dataframe(
+                contagem_status.to_frame("Total de OPs"),
+                use_container_width=True,
+            )
+
+        st.markdown("---")
+        st.markdown("**🏆 Top 10 Projetos/Lotes com Maior Volume a Produzir:**")
+        df_top_lotes = (
+            df_view[df_view["STATUS"] == "Falta"]
+            .groupby("Observacao")["Saldo_Pendente"]
+            .sum()
+            .reset_index()
+            .sort_values(by="Saldo_Pendente", ascending=False)
+            .head(10)
+        )
+        if not df_top_lotes.empty:
+            df_top_lotes.columns = ["Projeto / Observação", "Peças Pendentes"]
+            st.dataframe(
+                df_top_lotes.style.format({"Peças Pendentes": "{:,.0f}"}),
+                use_container_width=True,
+            )
+        else:
+            st.info("Nenhuma pendência encontrada para o filtro atual.")
