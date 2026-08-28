@@ -428,4 +428,4 @@ with tab_resumo:
         ),
         use_container_width=True,
         height=380,
-    )    
+    )
