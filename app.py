@@ -8,17 +8,17 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(
-    page_title="Gestão Integrada | PCP",
+    page_title="Painel de Gestão de OPs | PCP",
     page_icon="🏭",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-DATA_CACHE_PATH = "ultima_base_producao.parquet"
-INFO_CACHE_PATH = "info_ultima_carga.txt"
+DATA_CACHE_PATH = "ultima_base_ops.parquet"
+INFO_CACHE_PATH = "info_ultima_carga_ops.txt"
 
 
-# --- PROCESSAMENTO ULTRARRÁPIDO COM CACHE ---
+# --- PROCESSAMENTO COM CACHE DE ALTO DESEMPENHO ---
 @st.cache_data(show_spinner=False)
 def processar_bytes_csv(file_bytes):
     encodings = ["latin-1", "iso-8859-1", "cp1252", "utf-8"]
@@ -54,11 +54,13 @@ def processar_bytes_csv(file_bytes):
             continue
 
     if df is None or df.empty:
-        raise ValueError("Formato de arquivo inválido ou não reconhecido.")
+        raise ValueError(
+            "Não foi possível processar o arquivo. Verifique se é uma extração válida do sistema."
+        )
 
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Vetorização Numérica Rápida
+    # Conversão Numérica
     for col in ["Quantidade", "Qtd.Produzid", "Prioridade"]:
         if col in df.columns:
             df[col] = (
@@ -81,7 +83,7 @@ def processar_bytes_csv(file_bytes):
     else:
         df["Saldo_Produzir"] = 0.0
 
-    # Datas
+    # Conversão de Datas
     for col_dt in ["DT Real Fim", "Entrega", "DT Emissao"]:
         if col_dt in df.columns:
             df[col_dt + "_Parsed"] = pd.to_datetime(
@@ -90,7 +92,7 @@ def processar_bytes_csv(file_bytes):
 
     hoje = pd.to_datetime(datetime.now().strftime("%Y-%m-%d"))
 
-    # Status das OPs
+    # Regras de Status da OP
     def classificar_status(r):
         sit = str(r.get("Situacao", "")).strip().upper()
         if sit == "SUSPENSA":
@@ -129,7 +131,6 @@ def processar_bytes_csv(file_bytes):
 
 
 def carregar_base_salva():
-    """Carrega os dados persistidos da última versão."""
     if os.path.exists(DATA_CACHE_PATH) and os.path.exists(INFO_CACHE_PATH):
         try:
             df = pd.read_parquet(DATA_CACHE_PATH)
@@ -142,7 +143,6 @@ def carregar_base_salva():
 
 
 def salvar_base_em_disco(df):
-    """Grava em disco para manter a base persistida entre sessões."""
     df.to_parquet(DATA_CACHE_PATH, index=False)
     timestamp = datetime.now().strftime("%d/%m/%Y às %H:%M")
     with open(INFO_CACHE_PATH, "w", encoding="utf-8") as f:
@@ -204,108 +204,116 @@ def gerar_excel_download(df, resumo):
 
 
 # --- INICIALIZAÇÃO DA SESSÃO ---
-if "df_producao" not in st.session_state:
+if "df_ops" not in st.session_state:
     df_salvo, info_salva = carregar_base_salva()
-    st.session_state["df_producao"] = df_salvo
+    st.session_state["df_ops"] = df_salvo
     st.session_state["info_carga"] = info_salva
 
-# --- TOPO DA APLICAÇÃO ---
-col_logo, col_upload, col_hist = st.columns([1.2, 2.5, 1.3])
+# --- CABEÇALHO SUPERIOR (LAYOUT E ESPAÇAMENTOS AJUSTADOS) ---
+col_logo, col_upload, col_versao, col_reset = st.columns([1.6, 2.8, 1.2, 0.6])
 
 with col_logo:
-    st.markdown("### 🏭 Gestão Integrada")
+    st.markdown("### 🏭 Painel de Gestão de OPs")
     st.caption(f"🕒 **Última carga:** {st.session_state['info_carga']}")
 
 with col_upload:
-    st.markdown("**📁 Carregar planilhas (OP, Romaneio, Compras e SC):**")
+    st.markdown("📁 **Carregar planilha de OPs (scazzcn0.csv):**")
     arquivo = st.file_uploader(
-        "Upload",
+        "Upload de OPs",
         type=["csv", "xlsx", "xls"],
         label_visibility="collapsed",
-        key="uploader_topo",
+        key="uploader_ops_topo",
     )
     if arquivo is not None:
         file_bytes = arquivo.read()
         df_novo = processar_bytes_csv(file_bytes)
         info_nova = salvar_base_em_disco(df_novo)
-        st.session_state["df_producao"] = df_novo
+        st.session_state["df_ops"] = df_novo
         st.session_state["info_carga"] = info_nova
-        st.success("✅ Arquivo processado e salvo como versão padrão!")
+        st.success("✅ Base de OPs atualizada com sucesso!")
         st.rerun()
 
-with col_hist:
-    st.markdown("**⌛ Histórico de Versões:**")
-    c_sel, c_res = st.columns([2.5, 1])
-    with c_sel:
-        st.selectbox(
-            "Versão",
-            ["📁 Versão Atual"],
-            label_visibility="collapsed",
-            key="hist_ver",
-        )
-    with c_res:
-        if st.button("🧹 Resetar"):
-            if os.path.exists(DATA_CACHE_PATH):
-                os.remove(DATA_CACHE_PATH)
-            if os.path.exists(INFO_CACHE_PATH):
-                os.remove(INFO_CACHE_PATH)
-            st.session_state["df_producao"] = None
-            st.session_state["info_carga"] = "Nenhum arquivo salvo ainda"
-            st.rerun()
+with col_versao:
+    st.markdown("⌛ **Histórico de Versões:**")
+    st.selectbox(
+        "Versão",
+        ["📁 Versão Atual"],
+        label_visibility="collapsed",
+        key="hist_ver_ops",
+    )
+
+with col_reset:
+    st.markdown("&nbsp;")
+    if st.button("🧹 Resetar", use_container_width=True):
+        if os.path.exists(DATA_CACHE_PATH):
+            os.remove(DATA_CACHE_PATH)
+        if os.path.exists(INFO_CACHE_PATH):
+            os.remove(INFO_CACHE_PATH)
+        st.session_state["df_ops"] = None
+        st.session_state["info_carga"] = "Nenhum arquivo salvo ainda"
+        st.rerun()
 
 st.divider()
 
 # --- VERIFICAÇÃO DE DADOS ---
-df_base = st.session_state["df_producao"]
+df_base = st.session_state["df_ops"]
 
 if df_base is None or df_base.empty:
     st.info(
-        "👆 **Nenhuma planilha salva ainda.** Selecione o arquivo CSV/Excel no campo acima para carregar o painel."
+        "👆 **Nenhuma planilha de OPs salva.** Carregue o arquivo CSV de extração no campo acima para visualizar o painel."
     )
     st.stop()
 
-# --- FILTROS LATERAIS ---
-st.sidebar.markdown("### 🔍 Filtros de Visualização")
+# --- FILTROS SUPERIORES (MÊS/ANO E STATUS DA OP) ---
+st.markdown("#### 🔍 Filtros de Visualização")
 
-meses_totais = sorted(
-    [m for m in df_base["Mes_Ano"].unique() if pd.notnull(m)], reverse=True
-)
-meses_sel = st.sidebar.multiselect(
-    "Mês/Ano de Referência:",
-    options=meses_totais,
-    default=meses_totais if len(meses_totais) <= 4 else meses_totais[:4],
-)
+col_filtro_mes, col_filtro_status = st.columns([1.2, 1.8])
 
-status_totais = ["Encerrada", "Em Aberto", "Produção Parcial", "Atrasada", "OP Suspensa"]
-status_existentes = [s for s in status_totais if s in df_base["Status_OP"].unique()]
-status_sel = st.sidebar.multiselect(
-    "Status da OP:",
-    options=status_existentes,
-    default=status_existentes,
-)
+with col_filtro_mes:
+    meses_totais = sorted(
+        [m for m in df_base["Mes_Ano"].unique() if pd.notnull(m)], reverse=True
+    )
+    meses_sel = st.multiselect(
+        "Mês/Ano de Referência:",
+        options=meses_totais,
+        default=meses_totais if len(meses_totais) <= 4 else meses_totais[:4],
+        placeholder="Selecione os meses...",
+    )
 
-# --- BUSCA NO TOPO POR PROJETO E PEÇA ---
+with col_filtro_status:
+    status_ordem = [
+        "Encerrada",
+        "Em Aberto",
+        "Produção Parcial",
+        "Atrasada",
+        "OP Suspensa",
+    ]
+    status_existentes = [
+        s for s in status_ordem if s in df_base["Status_OP"].unique()
+    ]
+    status_sel = st.multiselect(
+        "Status da OP:",
+        options=status_existentes,
+        default=status_existentes,
+        placeholder="Selecione os status...",
+    )
+
+# --- BUSCA POR LOTE/PROJETO E PEÇA ---
 col_busca_obs, col_busca_peca = st.columns([1.5, 1])
 
 with col_busca_obs:
-    st.markdown("📄 **Digite e Flegue o(s) Lote(s) / Observação / Projeto:**")
-    # Extrai termos únicos de observação
     obs_unicas = sorted(
         [o for o in df_base["Observacao"].unique() if o.strip() != ""]
     )
     busca_obs = st.multiselect(
-        "Projetos",
+        "📄 Digite e Flegue o(s) Lote(s) / Observação:",
         options=obs_unicas,
-        placeholder="Digite parte do nome ou código (Ex: TAT, RANGER, MASTER, YARIS)...",
-        label_visibility="collapsed",
+        placeholder="Digite parte do nome ou código (Ex: TAT, RANGER, COROLLA, MASTER)...",
     )
 
 with col_busca_peca:
-    st.markdown("🔍 **Buscar Peça:**")
     busca_peca = st.text_input(
-        "Buscar Peça",
-        placeholder="Código ou descrição...",
-        label_visibility="collapsed",
+        "🔍 Buscar Peça:", placeholder="Digite o código ou descrição da peça..."
     )
 
 # --- APLICAÇÃO DOS FILTROS ---
@@ -323,6 +331,8 @@ if busca_peca.strip():
         df_f["Produto"].str.lower().str.contains(termo)
         | df_f["Desc. Prod."].str.lower().str.contains(termo)
     ]
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 # --- CARDS DE KPI DE PRODUÇÃO ---
 q_plan = int(df_f["Quantidade"].sum())
@@ -359,13 +369,13 @@ c4.metric(
 
 st.divider()
 
-# --- BOTÃO DE DOWNLOAD EXCEL FORMATADO ---
+# --- DOWNLOAD DA PLANILHA EXCEL COMPLETA ---
 resumo_m = gerar_resumo_mensal(df_f)
-col_down, _ = st.columns([1.2, 2.8])
+col_down, _ = st.columns([1.3, 2.7])
 
 with col_down:
     excel_data = gerar_excel_download(df_f, resumo_m)
-    nome_dl = f"PRODUCAO_{datetime.now().strftime('%d-%m_%H%M')}.xlsx"
+    nome_dl = f"PRODUCAO_OPS_{datetime.now().strftime('%d-%m_%H%M')}.xlsx"
     st.download_button(
         "📥 Baixar Pasta Excel Completa (.xlsx)",
         data=excel_data,
@@ -374,8 +384,10 @@ with col_down:
         use_container_width=True,
     )
 
-# --- TABELAS ---
-tab_ops, tab_resumo = st.tabs(["📋 Base de OPs Detalhada", "📈 Resumo Mensal"])
+# --- VISUALIZAÇÃO DAS TABELAS ---
+tab_ops, tab_resumo = st.tabs(
+    ["📋 Base de OPs Detalhada", "📈 Resumo Mensal de Produção"]
+)
 
 with tab_ops:
     col_csv, _ = st.columns([1, 4])
@@ -384,7 +396,7 @@ with tab_ops:
         st.download_button(
             "📄 Baixar Tabela em CSV",
             data=csv_bytes,
-            file_name="extracao_filtrada.csv",
+            file_name="extracao_ops_filtrada.csv",
             mime="text/csv",
         )
 
@@ -416,4 +428,4 @@ with tab_resumo:
         ),
         use_container_width=True,
         height=380,
-    )
+    )    
