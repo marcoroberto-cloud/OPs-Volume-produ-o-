@@ -1,3 +1,4 @@
+import io
 import os
 from datetime import datetime
 import pandas as pd
@@ -5,10 +6,10 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 
-def carregar_e_tratar_dados(caminho_csv):
-    """Lê o arquivo CSV bruto do Protheus (SC2) pulando as linhas de cabeçalho do sistema."""
+def carregar_e_tratar_dados(fonte_dados):
+    """Lê o CSV bruto do Protheus (SC2), pulando cabeçalhos do sistema."""
     df = pd.read_csv(
-        caminho_csv,
+        fonte_dados,
         sep=";",
         skiprows=2,
         encoding="latin-1",
@@ -16,10 +17,9 @@ def carregar_e_tratar_dados(caminho_csv):
         dtype=str,
     )
 
-    # Limpeza de nomes de colunas
     df.columns = [c.strip() for c in df.columns]
 
-    # Tratamento de valores numéricos
+    # Tratamento numérico
     for col in ["Quantidade", "Qtd.Produzid", "Prioridade"]:
         if col in df.columns:
             df[col] = (
@@ -31,8 +31,7 @@ def carregar_e_tratar_dados(caminho_csv):
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
     # Cálculo de Saldo
-    df["Saldo_Produzir"] = df["Quantidade"] - df["Qtd.Produzid"]
-    df["Saldo_Produzir"] = df["Saldo_Produzir"].apply(lambda x: max(x, 0))
+    df["Saldo_Produzir"] = (df["Quantidade"] - df["Qtd.Produzid"]).clip(lower=0)
 
     # Tratamento de Datas
     for col_dt in ["DT Real Fim", "Entrega", "DT Emissao"]:
@@ -41,9 +40,9 @@ def carregar_e_tratar_dados(caminho_csv):
                 df[col_dt], format="%d/%m/%Y", errors="coerce"
             )
 
-    # Definição das Regras de Status da OP
     hoje = pd.to_datetime(datetime.now().strftime("%Y-%m-%d"))
 
+    # Regras de Status da OP
     def calcular_status(row):
         qtd_plan = row.get("Quantidade", 0)
         qtd_prod = row.get("Qtd.Produzid", 0)
@@ -54,7 +53,7 @@ def carregar_e_tratar_dados(caminho_csv):
         if situacao == "SUSPENSA":
             return "OP Suspensa"
         if pd.notnull(dt_fim) or (qtd_prod >= qtd_plan and qtd_plan > 0):
-            return "Encerrada / Produzida"
+            return "Encerrada"
         if qtd_prod > 0 and qtd_prod < qtd_plan:
             return "Produção Parcial"
         if pd.notnull(dt_entrega) and dt_entrega < hoje:
@@ -63,8 +62,7 @@ def carregar_e_tratar_dados(caminho_csv):
 
     df["Status_OP"] = df.apply(calcular_status, axis=1)
 
-    # Identificação de Mês/Ano para o Resumo Mensal
-    # Usa DT Real Fim se produzida, senão usa DT Entrega
+    # Mês/Ano de referência (Data Real de Fim se finalizada, senão Data de Entrega)
     df["Data_Referencia"] = df["DT Real Fim_Parsed"].fillna(
         df["Entrega_Parsed"]
     )
@@ -74,8 +72,7 @@ def carregar_e_tratar_dados(caminho_csv):
 
 
 def gerar_resumo_mensal(df):
-    """Gera a tabela agregada de produção mensal."""
-    # Filtra dados com data válida
+    """Agregação mensal das OPs e peças."""
     df_valido = df.dropna(subset=["Mes_Ano"]).copy()
 
     resumo = (
@@ -85,10 +82,7 @@ def gerar_resumo_mensal(df):
             Qtd_Planejada=("Quantidade", "sum"),
             Qtd_Produzida=("Qtd.Produzid", "sum"),
             Saldo_Pendente=("Saldo_Produzir", "sum"),
-            OPs_Encerradas=(
-                "Status_OP",
-                lambda s: (s == "Encerrada / Produzida").sum(),
-            ),
+            OPs_Encerradas=("Status_OP", lambda s: (s == "Encerrada").sum()),
             OPs_Abertas=("Status_OP", lambda s: (s == "Em Aberto").sum()),
             OPs_Atrasadas=("Status_OP", lambda s: (s == "Atrasada").sum()),
         )
@@ -96,17 +90,17 @@ def gerar_resumo_mensal(df):
     )
 
     resumo["% Atingimento"] = (
-        resumo["Qtd_Produzida"] / resumo["Qtd_Planejada"].replace(0, 1)
-    ) * 100
+        (resumo["Qtd_Produzida"] / resumo["Qtd_Planejada"].replace(0, 1)) * 100
+    ).round(1)
     resumo = resumo.sort_values(by="Mes_Ano", ascending=False)
     return resumo
 
 
-def exportar_excel_formatado(df, resumo, caminho_saida):
-    """Gera o arquivo Excel final estilizado."""
+def gerar_excel_em_memoria(df, resumo):
+    """Cria o arquivo Excel formatado diretamente na memória (BytesIO) para download instantâneo."""
+    buffer = io.BytesIO()
     nome_aba_extracao = f"Extracao_{datetime.now().strftime('%d-%m_%H%M')}"
 
-    # Selecionar colunas finais para a aba de extração
     colunas_finais = [
         "Filial",
         "Numero da OP",
@@ -127,27 +121,18 @@ def exportar_excel_formatado(df, resumo, caminho_saida):
     colunas_presentes = [c for c in colunas_finais if c in df.columns]
     df_export = df[colunas_presentes].copy()
 
-    with pd.ExcelWriter(caminho_saida, engine="openpyxl") as writer:
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df_export.to_excel(writer, sheet_name=nome_aba_extracao, index=False)
         resumo.to_excel(writer, sheet_name="RESUMO_MENSAL", index=False)
 
-        # Aplicar formatações visuais com OpenPyXL
         wb = writer.book
-
         header_fill = PatternFill(
             start_color="1F4E78", end_color="1F4E78", fill_type="solid"
         )
         header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-        border_thin = Border(
-            left=Side(style="thin", color="D9D9D9"),
-            right=Side(style="thin", color="D9D9D9"),
-            top=Side(style="thin", color="D9D9D9"),
-            bottom=Side(style="thin", color="D9D9D9"),
-        )
 
         for sheet in wb.worksheets:
             sheet.views.sheetView[0].showGridLines = True
-            # Formatar Cabeçalho
             for cell in sheet[1]:
                 cell.fill = header_fill
                 cell.font = header_font
@@ -155,25 +140,12 @@ def exportar_excel_formatado(df, resumo, caminho_saida):
                     horizontal="center", vertical="center"
                 )
 
-            # Ajustar largura das colunas
             for col in sheet.columns:
-                max_len = max(len(str(cell.value or "")) for cell in col[:100])
+                max_len = max(len(str(cell.value or "")) for cell in col[:80])
                 col_letter = get_column_letter(col[0].column)
                 sheet.column_dimensions[col_letter].width = max(
-                    max_len + 4, 12
+                    max_len + 3, 12
                 )
 
-    print(f"✅ Arquivo gerado com sucesso: {caminho_saida}")
-
-
-if __name__ == "__main__":
-    arquivo_entrada = "scazzcn0.csv"
-    arquivo_saida = "MACRO_PRODUCAO_AUTOMATIZADA.xlsx"
-
-    if os.path.exists(arquivo_entrada):
-        print("Lendo e tratando dados...")
-        df_tratado = carregar_e_tratar_dados(arquivo_entrada)
-        df_resumo = gerar_resumo_mensal(df_tratado)
-        exportar_excel_formatado(df_tratado, df_resumo, arquivo_saida)
-    else:
-        print(f"❌ Arquivo '{arquivo_entrada}' não encontrado no diretório!")
+    buffer.seek(0)
+    return buffer
