@@ -1,6 +1,6 @@
+from datetime import datetime
 import io
 import os
-from datetime import datetime
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
@@ -14,12 +14,12 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# --- CSS AJUSTADO PARA NÃO TAMPAR O TOPO E MANTER A INTERFACE JUSTA ---
+# --- CSS AJUSTADO PARA TOPO LIMPO E ESPAÇAMENTO JUSTO ---
 st.markdown(
     """
     <style>
         .block-container {
-            padding-top: 3.2rem !important;
+            padding-top: 2.8rem !important;
             padding-bottom: 1.5rem !important;
             padding-left: 1.5rem !important;
             padding-right: 1.5rem !important;
@@ -133,9 +133,19 @@ def processar_arquivo_op(file_bytes):
         df_filtrado["DT_Real_Fim_Parsed"] = pd.to_datetime(
             df_filtrado["DT Real Fim"], format="%d/%m/%Y", errors="coerce"
         )
-        df_filtrado["Ano"] = df_filtrado["DT_Real_Fim_Parsed"].dt.strftime("%Y").fillna("Sem Data")
-        df_filtrado["Mes"] = df_filtrado["DT_Real_Fim_Parsed"].dt.strftime("%m").fillna("Sem Data")
-        df_filtrado["MÊS-ANO"] = df_filtrado["DT_Real_Fim_Parsed"].dt.strftime("%Y/%m").fillna("Sem Data")
+        df_filtrado["Ano"] = (
+            df_filtrado["DT_Real_Fim_Parsed"]
+            .dt.strftime("%Y")
+            .fillna("Sem Data")
+        )
+        df_filtrado["Mes"] = (
+            df_filtrado["DT_Real_Fim_Parsed"].dt.strftime("%m").fillna("Sem Data")
+        )
+        df_filtrado["MÊS-ANO"] = (
+            df_filtrado["DT_Real_Fim_Parsed"]
+            .dt.strftime("%Y/%m")
+            .fillna("Sem Data")
+        )
     else:
         df_filtrado["Ano"] = "Sem Data"
         df_filtrado["Mes"] = "Sem Data"
@@ -234,11 +244,6 @@ def gerar_excel_vba(df, resumo):
             cell.font = header_font
             cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        for col in ws_dados.columns:
-            max_len = max(len(str(cell.value or "")) for cell in col[9:80])
-            col_letter = get_column_letter(col[0].column)
-            ws_dados.column_dimensions[col_letter].width = max(max_len + 3, 12)
-
         ws_resumo = wb["RESUMO_MENSAL"]
         ws_resumo.views.sheetView[0].showGridLines = True
         ws_resumo.cell(row=1, column=1, value="RESUMO PRODUÇÃO MENSAL").font = (
@@ -250,16 +255,11 @@ def gerar_excel_vba(df, resumo):
             cell.font = header_font
             cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        for col in ws_resumo.columns:
-            max_len = max(len(str(cell.value or "")) for cell in col[2:30])
-            col_letter = get_column_letter(col[0].column)
-            ws_resumo.column_dimensions[col_letter].width = max(max_len + 4, 15)
-
     buffer.seek(0)
-    return buffer
+    return buffer.getvalue()
 
 
-# --- INICIALIZAÇÃO ---
+# --- INICIALIZAÇÃO DA SESSÃO ---
 if "df_ops" not in st.session_state:
     df_salvo, info_salva = carregar_base_salva()
     st.session_state["df_ops"] = df_salvo
@@ -304,7 +304,8 @@ df_base = st.session_state["df_ops"]
 
 if df_base is None or df_base.empty:
     st.info(
-        "👆 Selecione ou arraste o arquivo CSV no campo acima para carregar o painel."
+        "👆 Selecione ou arraste o arquivo CSV no campo acima para carregar o"
+        " painel."
     )
     st.stop()
 
@@ -318,7 +319,7 @@ with col_busca_proj:
     busca_projeto = st.multiselect(
         "📄 Digite e Flegue o(s) Lote(s) / Observação / Projeto:",
         options=obs_disponiveis,
-        placeholder="Digite parte do nome ou código (Ex: TAT, RANGER, COROLLA)...",
+        placeholder="Todos os lotes e projetos...",
     )
 
 with col_busca_peca:
@@ -334,7 +335,7 @@ with col_filtro_status:
         horizontal=True,
     )
 
-# --- FILTRO EM DUAS ETAPAS: ANO E MÊS ---
+# --- FILTROS DE ANO E MÊS ---
 col_ano, col_mes = st.columns([1, 2])
 
 with col_ano:
@@ -343,7 +344,7 @@ with col_ano:
     )
     if "Sem Data" in df_base["Ano"].unique():
         anos_disponiveis.append("Sem Data")
-        
+
     anos_selecionados = st.multiselect(
         "📅 Filtrar Ano:",
         options=anos_disponiveis,
@@ -351,10 +352,11 @@ with col_ano:
     )
 
 with col_mes:
-    # Se selecionou ano, traz apenas os meses daquele ano
     if anos_selecionados:
         meses_disp = sorted(
-            df_base[df_base["Ano"].isin(anos_selecionados)]["MÊS-ANO"].unique().tolist(),
+            df_base[df_base["Ano"].isin(anos_selecionados)]["MÊS-ANO"]
+            .unique()
+            .tolist(),
             reverse=True,
         )
     else:
@@ -366,7 +368,7 @@ with col_mes:
         placeholder="Todos os meses",
     )
 
-# --- APLICAÇÃO DOS FILTROS (SE NÃO SELECIONAR NADA, TRAZ TODOS) ---
+# --- APLICAÇÃO DOS FILTROS (SE VAZIO, TRAZ TUDO) ---
 df_view = df_base.copy()
 
 if busca_projeto:
@@ -430,11 +432,12 @@ df_resumo_mensal = gerar_resumo_mensal(df_view)
 
 col_dl_excel, col_dl_csv = st.columns([1.5, 1])
 with col_dl_excel:
-    excel_bytes = gerar_excel_vba(df_view, df_resumo_mensal)
-    nome_arquivo_excel = f"MACRO_PRODUCAO_{datetime.now().strftime('%d-%m_%H%M')}.xlsx"
+    nome_arquivo_excel = (
+        f"MACRO_PRODUCAO_{datetime.now().strftime('%d-%m_%H%M')}.xlsx"
+    )
     st.download_button(
         label="📥 Baixar Pasta Excel Completa (.xlsx)",
-        data=excel_bytes,
+        data=gerar_excel_vba(df_view, df_resumo_mensal),
         file_name=nome_arquivo_excel,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
@@ -459,39 +462,45 @@ if modo_mobile:
 
     with aba_mob_falta:
         df_falta_mob = df_view[df_view["STATUS"] == "Falta"]
-        st.caption(f"Total: {len(df_falta_mob)} OPs pendentes")
+        st.caption(f"Total: {len(df_falta_mob):,} OPs pendentes")
         for _, row in df_falta_mob.head(40).iterrows():
             with st.container(border=True):
                 st.markdown(
-                    f"**OP:** `{row['Numero da OP']}` | **Falta:** `:red[{int(row['Saldo_Pendente']):,} pçs]`"
+                    f"**OP:** `{row['Numero da OP']}` | **Falta:**"
+                    f" `:red[{int(row['Saldo_Pendente']):,} pçs]`"
                 )
-                st.markdown(f"**Peça:** {row['Produto']} - {row['Desc. Prod.']}")
+                st.markdown(
+                    f"**Peça:** {row['Produto']} - {row['Desc. Prod.']}"
+                )
                 st.caption(f"Lote/Projeto: {row['Observacao']}")
 
     with aba_mob_ok:
         df_ok_mob = df_view[df_view["STATUS"] == "Ok"]
-        st.caption(f"Total: {len(df_ok_mob)} OPs concluídas")
+        st.caption(f"Total: {len(df_ok_mob):,} OPs concluídas")
         for _, row in df_ok_mob.head(40).iterrows():
             with st.container(border=True):
                 st.markdown(
-                    f"**OP:** `{row['Numero da OP']}` | **Qtd:** `:green[{int(row['Quantidade']):,} pçs]`"
+                    f"**OP:** `{row['Numero da OP']}` | **Qtd:**"
+                    f" `:green[{int(row['Quantidade']):,} pçs]`"
                 )
-                st.markdown(f"**Peça:** {row['Produto']} - {row['Desc. Prod.']}")
+                st.markdown(
+                    f"**Peça:** {row['Produto']} - {row['Desc. Prod.']}"
+                )
                 st.caption(f"Concluída em: {row['DT Real Fim']}")
 
 else:
-    # --- ABAS DE TABELAS E RELATÓRIO GRÁFICO (DESKTOP) ---
+    # --- ABAS DE TABELAS COMPLETAS (DESKTOP) ---
     (
+        tab_todas,
         tab_pendentes,
         tab_produzidas,
-        tab_todas,
         tab_resumo,
         tab_graficos,
     ) = st.tabs(
         [
+            "📋 Todas as OPs (Completo)",
             "🔴 A Produzir (Falta)",
             "🟢 Produzidas (Ok)",
-            "📋 Todas as OPs Filtradas",
             "📈 Resumo Produção Mensal",
             "📊 Relatório & Gráficos",
         ]
@@ -512,25 +521,26 @@ else:
     ]
     cols_existentes = [c for c in colunas_tabela if c in df_view.columns]
 
+    with tab_todas:
+        st.caption(
+            f"Exibindo {len(df_view):,} OPs no total (abertas e finalizadas)."
+        )
+        st.dataframe(
+            df_view[cols_existentes], use_container_width=True, height=500
+        )
+
     with tab_pendentes:
         df_pendentes = df_view[df_view["STATUS"] == "Falta"]
-        st.caption(f"Exibindo {len(df_pendentes):,} OPs com saldo pendente.")
+        st.caption(f"Exibindo {len(df_pendentes):,} OPs com saldo a produzir.")
         st.dataframe(
-            df_pendentes[cols_existentes], use_container_width=True, height=450
+            df_pendentes[cols_existentes], use_container_width=True, height=500
         )
 
     with tab_produzidas:
         df_produzidas = df_view[df_view["STATUS"] == "Ok"]
-        st.caption(
-            f"Exibindo {len(df_produzidas):,} OPs totalmente produzidas."
-        )
+        st.caption(f"Exibindo {len(df_produzidas):,} OPs 100% concluídas.")
         st.dataframe(
-            df_produzidas[cols_existentes], use_container_width=True, height=450
-        )
-
-    with tab_todas:
-        st.dataframe(
-            df_view[cols_existentes], use_container_width=True, height=450
+            df_produzidas[cols_existentes], use_container_width=True, height=500
         )
 
     with tab_resumo:
@@ -564,7 +574,12 @@ else:
             contagem_status = (
                 df_view["STATUS"]
                 .value_counts()
-                .rename(index={"Ok": "Produzidas (Ok)", "Falta": "A Produzir (Falta)"})
+                .rename(
+                    index={
+                        "Ok": "Produzidas (Ok)",
+                        "Falta": "A Produzir (Falta)",
+                    }
+                )
             )
             st.dataframe(
                 contagem_status.to_frame("Total de OPs"),
